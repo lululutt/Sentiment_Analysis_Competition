@@ -9,4 +9,4 @@ We would be exploring different possibilities of data pre-processing to achieve 
 We experimented several ways to optimize our approach to processing the training data. Eventually, we found the optimal data pre-processing approach which comprised of 3 key areas: Expand Training Set, TF-IDF & N-Grams.
 
 ## Algorithm Performance
-### Best Performing model was Model 1 which utilized k-fold cross-validation to tune a Logistic Regression Model. This achieved an overall accuracy of 0.9056.
+Best Performing model was Model 1 which utilized k-fold cross-validation to tune a Logistic Regression Model. This achieved an overall accuracy of 0.9056. The other, lower performance algorithms are attached for your viewing.
