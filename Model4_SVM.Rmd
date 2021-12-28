@@ -1,0 +1,212 @@
+---
+title: "TAE Submission 5"
+---
+
+
+First, we prepare the working environment.
+```{r}
+rm(list=ls())
+```
+
+# Data preparation
+
+Load the tweets
+
+Ensure stringsAsFactors is set to FALSE to prevent character vectors being converted into factors
+```{r}
+twitter_train <- read.csv("train.csv", stringsAsFactors = FALSE)
+twitter_test <- read.csv("test.csv", stringsAsFactors = FALSE)
+
+#str(twitter_train)
+# 22500 obs
+```
+
+Analyze train dataset
+
+Predictions:
+1 - negative
+2 - neutral
+3 - positive
+
+```{r}
+table(twitter_train$sentiment)
+```
+6788 negative, 7900 neutral and 7812 positive
+
+# Pre-processing
+
+Create DTM
+
+```{r}
+if(!require(tm)){
+  install.packages("tm")
+  library(tm)
+}
+if(!require(SnowballC)){
+  install.packages("SnowballC")
+  library(SnowballC)
+}
+
+corpus <- Corpus(VectorSource(twitter_train$tweet))
+```
+
+Check elements of the corpus
+
+```{r}
+as.character(corpus[[1]])
+as.character(corpus[[5625]])
+as.character(corpus[[11250]])
+as.character(corpus[[16875]])
+as.character(corpus[[22500]])
+```
+
+1st: convert to lower case
+2nd: remove stopwords
+3rd: remove punctuation
+4th: remove numbers
+5th: stemming
+6th: remove highly relevant words -> words describing weather taken from (https://usefulenglish.ru/vocabulary/weather-and-temperature)
+7th: remove sparse terms (do later/next iteration)
+
+```{r}
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus <- tm_map(corpus, removeWords, stopwords("english"))
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, removeNumbers)
+corpus <- tm_map(corpus, stemDocument)
+corpus <- tm_map(corpus, removeWords, c("weather", "thunderstorm", "sun", "rain", "cloud", "wet", "humid", "rain", "wind", "fog", "storm", "dry", "arid", "frigid", "breeze",  "cold", "hot", "warm", "overcast", "dark", "hail", "sky", "cool", "snow", "freeze", "clear", "summer", "thunder", "spring", "flood"))
+```
+
+Check the output of the pre-processing
+
+```{r}
+as.character(corpus[[1]])
+as.character(corpus[[5625]])
+as.character(corpus[[11250]])
+as.character(corpus[[16875]])
+as.character(corpus[[22500]])
+```
+
+# Create DTM
+
+```{r}
+dtm <- DocumentTermMatrix(corpus)
+```
+
+
+```{r}
+#dtm[1,]
+inspect(dtm[1,])
+inspect(dtm[5625,])
+inspect(dtm[11250,])
+inspect(dtm[16875,])
+inspect(dtm[22500,])
+```
+
+Remove sparse terms
+
+```{r}
+dtm <- removeSparseTerms(dtm, 0.995)
+dtm
+```
+
+Now the dtm is a 22500 document by 208 term matrix
+
+# Prepare DTM for model learning
+
+First, we prepare the dataframe and column names
+
+```{r}
+twittersparse <- as.data.frame(as.matrix(dtm))
+colnames(twittersparse) <- make.names(colnames(twittersparse))
+```
+
+Next, we add the output variable (1 = negative, 2 = neutral and 3 = positive) for the 'twittersparse' dataframe.
+
+```{r}
+twittersparse$sentiment <- twitter_train$sentiment
+twittersparse$sentiment <- as.factor(twittersparse$sentiment)
+#str(twittersparse)
+#head(twittersparse)
+```
+
+# Train and test a classifier
+# Classifier: SVMs
+
+Train several SVMs with varying costs
+Increasing costs would result in longer time to train the model
+
+If run all 3, this block would take approx. 2 mins to run. Just comment 1st and 3rd because modelSVM2 will be used
+
+```{r}
+library(e1071)
+
+#modelSVM <- svm(sentiment ~., data = twittersparse, kernel = "linear", cost = 0.1, scale = FALSE)
+
+modelSVM2 <- svm(sentiment ~., data = twittersparse, kernel = "linear", cost = 1, scale = FALSE)
+
+#modelSVM3 <- svm(sentiment ~., data = twittersparse, kernel = "linear", cost = 10, scale = FALSE)
+```
+
+Prediction
+
+```{r}
+predictSVM <- predict(modelSVM, newdata = twittersparse, type = "class")
+table(predictSVM, twittersparse$sentiment)
+acc <- (5697+6597+6588)/nrow(twittersparse)
+acc # 0.8392
+
+predictSVM2 <- predict(modelSVM2, newdata = twittersparse, type = "class")
+table(predictSVM2, twittersparse$sentiment)
+acc2 <- (5698+6743+6594)/nrow(twittersparse)
+acc2 # 0.846
+
+predictSVM3 <- predict(modelSVM3, newdata = twittersparse, type = "class")
+table(predictSVM3, twittersparse$sentiment)
+acc3 <- (5700+6749+6596)/nrow(twittersparse)
+acc3 # 0.8464444
+``` 
+
+As seen above, the training set accuracy increases more between modelSVM and modelSVM2 as compared to between modelSVM2 and modelSVM3. Hence, we will proceed with using modelSVM2 with a cost of 1
+
+# Actual Prediction
+
+Prepare the test dataset into a DTM of similar columns as the training dataset
+
+```{r}
+corpus <- Corpus(VectorSource(twitter_test$tweet))
+
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus <- tm_map(corpus, removeWords, stopwords("english"))
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, removeNumbers)
+corpus <- tm_map(corpus, stemDocument)
+corpus <- tm_map(corpus, removeWords, c("weather", "thunderstorm", "sun", "rain", "cloud", "wet", "humid", "rain", "wind", "fog", "storm", "dry", "arid", "frigid", "breeze",  "cold", "hot", "warm", "overcast", "dark", "hail", "sky", "cool", "snow", "freeze", "clear", "summer", "thunder", "spring", "flood"))
+
+dtm <- DocumentTermMatrix(corpus)
+
+twittersparse_actual <- as.data.frame(as.matrix(dtm))
+colnames(twittersparse_actual) <- make.names(colnames(twittersparse_actual))
+twittersparse_actual <- twittersparse_actual[colnames(twittersparse_actual) %in% colnames(twittersparse)]
+
+#twittersparse_actual$sentiment <- 0
+
+#col_order <- colnames(twittersparse)
+#twittersparse_actual <- twittersparse_actual[, col_order]
+```
+
+Make predictions on the test dataset
+
+```{r}
+predictSVM_actual <-  predict(modelSVM2, newdata = twittersparse_actual, type = "class")
+twitter_test$sentiment <- predictSVM_actual
+```
+
+Prepare results for exporting to a csv file.
+
+```{r}
+twitter_final_pred <- twitter_test[, c("id", "sentiment")]
+
+write.csv(twitter_final_pred, "C:\\Users\\hakim\\Documents\\SUTD\\SUTD Term 6\\TAE\\Competition\\Submission_5.csv", row.names = FALSE)
+```
+

@@ -1,0 +1,203 @@
+---
+title: "TAE Submission 1 day 1/12"
+output: html_notebook
+---
+
+First, we prepare the working environment.
+```{r}
+rm(list=ls())
+```
+
+# Data preparation
+
+Load the tweets
+
+Ensure stringsAsFactors is set to FALSE to prevent character vectors being converted into factors
+```{r}
+twitter_train <- read.csv("train.csv", stringsAsFactors = FALSE)
+twitter_test <- read.csv("test.csv", stringsAsFactors = FALSE)
+
+#str(twitter_train)
+# 22500 obs
+```
+
+Analyze train dataset
+
+Predictions:
+1 - negative
+2 - neutral
+3 - positive
+
+```{r}
+table(twitter_train$sentiment)
+```
+6788 negative, 7900 neutral and 7812 positive
+
+# Pre-processing
+
+Create DTM
+
+```{r}
+if(!require(tm)){
+  install.packages("tm")
+  library(tm)
+}
+if(!require(SnowballC)){
+  install.packages("SnowballC")
+  library(SnowballC)
+}
+
+corpus <- Corpus(VectorSource(twitter_train$tweet))
+```
+
+Check elements of the corpus
+
+```{r}
+as.character(corpus[[1]])
+as.character(corpus[[5625]])
+as.character(corpus[[11250]])
+as.character(corpus[[16875]])
+as.character(corpus[[22500]])
+```
+
+1st: convert to lower case
+2nd: remove stopwords
+3rd: remove highly relevant words -> words describing weather taken from (https://usefulenglish.ru/vocabulary/weather-and-temperature)
+4th: remove punctuation
+5th: remove numbers
+6th: stemming
+7th: remove sparse terms (do later/next iteration)
+
+```{r}
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus <- tm_map(corpus, removeWords, stopwords("english"))
+corpus <- tm_map(corpus, removeWords, c("weather", "thunderstorm", "sunny", "rain", "cloudy", "wet", "humid", "rainy", "windless", "foggy", "stormy", "windy", "dry", "arid", "frigid", "breezy",  "cold", "hot", "warm", "overcast", "dark", "hail", "humidity", "sky", "cool", "cooling"))
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, removeNumbers)
+corpus <- tm_map(corpus, stemDocument)
+```
+
+Check the output of the pre-processing
+
+```{r}
+as.character(corpus[[1]])
+as.character(corpus[[5625]])
+as.character(corpus[[11250]])
+as.character(corpus[[16875]])
+as.character(corpus[[22500]])
+```
+
+# Create DTM
+
+```{r}
+dtm <- DocumentTermMatrix(corpus)
+dtm
+```
+
+
+```{r}
+#dtm[1,]
+inspect(dtm[1,])
+inspect(dtm[5625,])
+inspect(dtm[11250,])
+inspect(dtm[16875,])
+inspect(dtm[22500,])
+```
+
+Remove sparse terms
+
+```{r}
+dtm <- removeSparseTerms(dtm, 0.995)
+dtm
+```
+
+Now the dtm is a 22500 document by 216 term matrix
+
+# Prepare DTM for model learning
+
+First, we prepare the dataframe and column names
+
+```{r}
+twittersparse <- as.data.frame(as.matrix(dtm))
+colnames(twittersparse) <- make.names(colnames(twittersparse))
+```
+
+Next, we add the output variable (1 = negative, 2 = neutral and 3 = positive) for the 'twittersparse' dataframe.
+
+```{r}
+twittersparse$sentiment <- twitter_train$sentiment
+twittersparse$sentiment <- as.factor(twittersparse$sentiment)
+#str(twittersparse)
+#head(twittersparse)
+```
+
+# Train and test a classifier
+# Classifier: Regression Tree
+
+```{r}
+library(rpart)
+
+modelCART <- rpart(sentiment ~ ., data = twittersparse, cp = 10^-6)
+modelCART
+```
+
+Prediction
+
+```{r}
+predictCART <- predict(modelCART, newdata = twittersparse, type = "class")
+table(predictCART, twittersparse$sentiment)
+acc <- (5888+6469+6077)/nrow(twittersparse)
+acc
+
+printcp(modelCART)
+#colnames(twittersparse)
+
+modelCART2 <- prune(modelCART, cp=6.8493e-05)
+predictCART2 <- predict(modelCART2, newdata = twittersparse, type = "class")
+table(predictCART2, twittersparse$sentiment)
+acc2 <- (5862+6467+6094)/nrow(twittersparse)
+acc2
+
+colnames(twittersparse)
+```
+
+# Actual Prediction
+
+Prepare the test dataset into a DTM of similar columns as the training dataset
+
+```{r}
+corpus <- Corpus(VectorSource(twitter_test$tweet))
+
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus <- tm_map(corpus, removeWords, stopwords("english"))
+corpus <- tm_map(corpus, removeWords, c("weather", "thunderstorm", "sunny", "rain", "cloudy", "wet", "humid", "rainy", "windless", "foggy", "stormy", "windy", "dry", "arid", "frigid", "breezy",  "cold", "hot", "warm", "overcast", "dark", "hail", "humidity", "sky", "cool", "cooling", "snow", "freezing", "clear", "cloud"))
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, removeNumbers)
+corpus <- tm_map(corpus, stemDocument)
+
+dtm <- DocumentTermMatrix(corpus)
+
+twittersparse_actual <- as.data.frame(as.matrix(dtm))
+colnames(twittersparse_actual) <- make.names(colnames(twittersparse_actual))
+twittersparse_actual <- twittersparse_actual[colnames(twittersparse_actual) %in% colnames(twittersparse)]
+
+twittersparse_actual$sentiment <- 0
+
+col_order <- colnames(twittersparse)
+twittersparse_actual <- twittersparse_actual[, col_order]
+```
+
+Make predictions on the test dataset
+
+```{r}
+predictCART_actual <- predict(modelCART, newdata = twittersparse_actual, type = "class")
+twitter_test$sentiment <- predictCART_actual
+```
+
+Prepare results for exporting to a csv file.
+
+```{r}
+twitter_final_pred <- twitter_test[, c("id", "sentiment")]
+
+write.csv(twitter_final_pred, "C:\\Users\\hakim\\Documents\\SUTD\\SUTD Term 6\\TAE\\Competition\\Submission_1.csv", row.names = FALSE)
+```
